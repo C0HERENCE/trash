@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+clips/
+cookie.txt
+LoginInfo.txt
+*.pyc
