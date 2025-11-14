@@ -62,7 +62,7 @@ streams = get_streams(current_replay)
 if not streams:
     raise SystemExit("未获取到任何录像码流。")
 
-m3u8 = streams[0]
+m3u8 = max(streams, key=lambda s: s['start_time'])
 output_dir = Path("clips") / str(current_replay["live_key"])
 output_dir.mkdir(parents=True, exist_ok=True)
 
