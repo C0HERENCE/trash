@@ -9,7 +9,7 @@ class AccountManager:
         self.path = Path(path)
         self.login_info = None
         self.role_list = []
-        self.game_open_id = "osewR0sPrMvAhzZ-gaFjDBPfNHh4"
+        self.game_open_id = ""
         self.game_id = "20004"
         self._load()
 

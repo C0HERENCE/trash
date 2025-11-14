@@ -75,4 +75,5 @@ def g4p_login():
         login_flow(client, account)
     roles = client.get_all_roles()
     account.role_list = roles
+    account.game_open_id = roles[0]['openid']
     return client
