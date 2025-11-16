@@ -2,3 +2,5 @@
 pyqrcode>=1.2.1
 pypng>=0.20220715.0
 tqdm>=4.66.5
+fastapi>=0.115.0
+uvicorn>=0.30.0

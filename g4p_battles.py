@@ -77,3 +77,10 @@ def g4p_login():
     account.role_list = roles
     account.game_open_id = roles[0]['openid']
     return client
+
+def is_g4p_logged_in() -> bool:
+    """Return True if cached login data is still valid."""
+    account = get_account_manager()
+    return bool(account.is_valid_login())
+
+

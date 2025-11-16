@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -50,13 +50,9 @@ if not errorlevel 1 (
     goto :need_cookie
 )
 
-echo [INFO] 开始处理精彩集锦，请耐心等待...
+echo [INFO] 启动本地 Web 服务，稍后在浏览器打开 http://127.0.0.1:8000 点击“开始导出”（按 Ctrl+C 可停止）。
 "%VENV_PY%" "%SCRIPT_DIR%main.py"
 if errorlevel 1 goto :run_fail
-
-echo.
-echo [INFO] 已完成，请查看当前文件夹中的 clip_*.mp4。
-pause
 exit /b 0
 
 :pip_fail
@@ -82,3 +78,4 @@ for %%C in (py python python3) do (
     )
 )
 exit /b 1
+

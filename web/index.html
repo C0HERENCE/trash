@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <title>和平精英精彩录像工具</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/vue-router@4"></script>
+    <style>
+        body { font-family: "Segoe UI","PingFang SC",sans-serif; margin:0; background:#f5f7fb; }
+        header { background:#1f2329; color:#fff; padding:20px; }
+        header h1 { margin:0; font-size:22px; }
+        header p { margin:6px 0 0; color:#c9d1d9; }
+        nav { display:flex; gap:10px; padding:12px 20px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+        nav a { padding:8px 16px; border:1px solid #d0d7de; border-radius:4px; text-decoration:none; color:#1f2329; }
+        nav a.router-link-active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+        main { padding:20px; }
+        .card { background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:20px; margin-bottom:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+        .list-box { border:1px solid #e5e5e5; border-radius:4px; padding:12px; max-height:320px; overflow:auto; background:#fff; }
+        .clip-item { border-bottom:1px solid #eee; padding:6px; cursor:pointer; }
+        .clip-item:last-child { border-bottom:none; }
+        .clip-item.active { background:#e7f1ff; font-weight:bold; }
+        .clips-layout { display:flex; gap:20px; }
+        .clips-layout video { flex:2; max-width:720px; }
+        .clips-sidebar { flex:1; display:flex; flex-direction:column; gap:12px; }
+        .folder-tabs { display:flex; flex-wrap:wrap; gap:6px; }
+        .folder-tabs button { padding:4px 10px; border:1px solid #d0d7de; border-radius:4px; background:#fff; cursor:pointer; font-size:13px; }
+        .folder-tabs button.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+        .folder-list { border:1px solid #e5e5e5; border-radius:4px; padding:10px; background:#fff; overflow:auto; flex:1; }
+        .replay-item { display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid #eee; }
+        .replay-item:last-child { border-bottom:none; }
+        .replay-meta { flex:1; }
+        .replay-meta strong { display:block; margin-bottom:4px; }
+        .hint { color:#57606a; font-size:13px; margin-top:8px; }
+        .replay-actions a { color:#1f6feb; text-decoration:none; }
+        .alert { padding:10px 12px; border-radius:4px; border-left:4px solid #8b949e; background:#f6f8fa; color:#1f2329; margin-top:12px; font-size:14px; }
+        .alert.warn { background:#fff8e5; border-color:#ffb11b; color:#7a4700; }
+        .alert.success { background:#e6ffed; border-color:#2da44e; color:#0a6020; }
+        .link-btn { border:none; background:none; color:#1f6feb; cursor:pointer; margin-left:8px; font-size:13px; padding:0; }
+        .link-btn:disabled { color:#8b949e; cursor:not-allowed; }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script type="module">
+        const ExportView = {
+            template: `
+                <main>
+                    <div class='card'>
+                        <h2>导出操作</h2>
+                        <p>请在下方勾选需要导出的 B 站录像，默认选中最新一场，可多选。</p>
+                        <p class='hint'>当前已勾选 {{ selectedKeys.length }} 场。</p>
+                        <button @click="runExport" :disabled="running || !selectedKeys.length || loggedIn === false">{{ running ? '正在导出...' : '导出所选录像' }}</button>
+                        <p class='hint'>将按照勾选顺序依次处理，每场的成品会落在 clips/LiveKey/ 目录中。</p>
+                        <div v-if="statusLoading" class='alert'>正在检测登录状态...</div>
+                        <div v-else-if="loggedIn === false" class='alert warn'>
+                            未检测到游戏账号登录，请回到运行本程序的终端窗口，按照提示使用微信扫码登录后点击
+                            <button type="button" class='link-btn' @click="fetchStatus" :disabled="statusLoading">重新检测</button>
+                        </div>
+                        <div v-else-if="loggedIn === true" class='alert success'>
+                            已检测到有效登录，可直接发起导出。
+                            <button type="button" class='link-btn' @click="fetchStatus" :disabled="statusLoading">重新检测</button>
+                        </div>
+                        <div v-else class='alert warn'>
+                            {{ statusError ? ('检测失败：' + statusError) : '无法确认登录状态，请检查后台窗口是否仍在运行。' }}
+                            <button type="button" class='link-btn' @click="fetchStatus" :disabled="statusLoading">重试</button>
+                        </div>
+                        <pre style='white-space:pre-wrap;border:1px solid #ccc;padding:8px;margin-top:12px;'>{{ log }}</pre>
+                    </div>
+                    <div class='card'>
+                        <div style='display:flex;justify-content:space-between;align-items:center;'>
+                            <h3>最近 B 站录像</h3>
+                            <button @click="fetchReplays">刷新录像</button>
+                        </div>
+                        <p class='hint'>直播录像通常会拆成多段，可勾选多场一起导出。</p>
+                        <div class='list-box'>
+                            <template v-if="replays.length">
+                                <label v-for="(replay, idx) in replays" :key="replay.live_key || idx" class='replay-item'>
+                                    <input type="checkbox" :value="String(replay.live_key)" v-model="selectedKeys" />
+                                    <div class='replay-meta'>
+                                        <strong>#{{ idx + 1 }} · LiveKey {{ replay.live_key }}</strong>
+                                        <div>开始：{{ formatTimestamp(replay.start_time) }}</div>
+                                        <div>时长：{{ formatDuration(replay.end_time - replay.start_time) }}</div>
+                                        <div class='replay-actions'>
+                                            <a v-if="replay.cutUrl" :href="replay.cutUrl" target="_blank">快速裁剪</a>
+                                            <span v-else>暂无快速裁剪链接</span>
+                                        </div>
+                                    </div>
+                                </label>
+                            </template>
+                            <em v-else>{{ replaysLoading ? '加载中...' : '暂无数据' }}</em>
+                        </div>
+                    </div>
+                </main>
+            `,
+            data() {
+                return {
+                    running:false,
+                    log:'尚未开始',
+                    replays:[],
+                    replaysLoading:false,
+                    selectedKeys:[],
+                    statusLoading:true,
+                    statusError:'',
+                };
+            },
+            mounted() { this.fetchStatus(); this.fetchReplays(); },
+            methods: {
+                async fetchStatus() {
+                    this.statusLoading = true;
+                    this.statusError = '';
+                    try {
+                        const resp = await fetch('/api/status');
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || '获取登录状态失败');
+                        this.loggedIn = !!data.logged_in;
+                        this.statusError = '';
+                    } catch (err) {
+                        this.loggedIn = null;
+                        this.statusError = err.message;
+                    } finally {
+                        this.statusLoading = false;
+                    }
+                },
+                async runExport() {
+                    if (!this.selectedKeys.length) {
+                        this.log = '请至少勾选一场录像后再导出。';
+                        return;
+                    }
+                    if (this.loggedIn !== true) {
+                        await this.fetchStatus();
+                        if (this.loggedIn !== true) {
+                            this.log = '请先回到运行本程序的终端窗口扫码登录后再导出。';
+                            return;
+                        }
+                    }
+                    this.running = true;
+                    this.log = '正在导出所选录像，可能耗时数分钟...';
+                    try {
+                        const resp = await fetch('/api/run', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ live_keys: this.selectedKeys }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || '请求失败');
+                        const info = data.result || {};
+                        const replayResults = Array.isArray(info.replay_results) ? info.replay_results : [];
+                        const lines = [`成功导出 ${info.success_count || 0} 段精彩片段。`];
+                        if (info.live_keys && info.live_keys.length) {
+                            lines.push('涉及 LiveKey：' + info.live_keys.join(', '));
+                        }
+                        if (replayResults.length) {
+                            lines.push('各场详情：');
+                            replayResults.forEach((item, index) => {
+                                lines.push(`- [${index + 1}] LiveKey ${item.live_key}：成功 ${item.success_count} 段，目录 ${item.output_dir}`);
+                                if (item.failed_messages && item.failed_messages.length) {
+                                    item.failed_messages.forEach(msg => lines.push('    · ' + msg));
+                                }
+                            });
+                        }
+                        if (info.failed_messages && info.failed_messages.length) {
+                            lines.push('失败摘要：');
+                            info.failed_messages.forEach(msg => lines.push('- ' + msg));
+                        }
+                        this.log = lines.join('\n');
+                    } catch (err) {
+                        this.log = '发生错误：' + err.message;
+                    } finally {
+                        this.running = false;
+                    }
+                },
+                async fetchReplays() {
+                    this.replaysLoading = true;
+                    try {
+                        const resp = await fetch('/api/replays');
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || '获取录像失败');
+                        this.replays = (data.replays || []).map(r => ({
+                            ...r,
+                            cutUrl: this.buildCutUrl(r),
+                        }));
+                        this.syncSelection();
+                    } catch (err) {
+                        this.replays = [];
+                        this.log = '拉取录像失败：' + err.message;
+                    } finally {
+                        this.replaysLoading = false;
+                    }
+                },
+                syncSelection() {
+                    const valid = new Set(this.replays.map(r => String(r.live_key)));
+                    this.selectedKeys = this.selectedKeys.filter(key => valid.has(String(key)));
+                    if (!this.selectedKeys.length && this.replays.length) {
+                        this.selectedKeys = [String(this.replays[0].live_key)];
+                    }
+                },
+                buildCutUrl(replay) {
+                    if (!replay || !replay.live_key || !replay.start_time || !replay.end_time) return null;
+                    return `https://live.bilibili.com/web-cut/quick-publish.html?start_time=${replay.start_time}&end_time=${replay.end_time}&live_key=${replay.live_key}`;
+                },
+                formatTimestamp(ts) { return ts ? new Date(ts * 1000).toLocaleString() : '未知'; },
+                formatDuration(seconds) {
+                    if (!seconds || seconds < 0) return '未知';
+                    const h = Math.floor(seconds / 3600);
+                    const m = Math.floor((seconds % 3600) / 60);
+                    const s = Math.floor(seconds % 60);
+                    const parts = [];
+                    if (h) parts.push(`${h}小时`);
+                    parts.push(`${m}分`);
+                    parts.push(`${s}秒`);
+                    return parts.join('');
+                },
+            },
+        };
+
+        const BattlesView = {
+            template: `
+                <main>
+                    <div class='card'>
+                        <div style='display:flex;justify-content:space-between;align-items:center;'>
+                            <h2>最近战绩</h2>
+                            <button @click="fetchBattles">刷新战绩</button>
+                        </div>
+                        <div class='list-box'>
+                            <template v-if="battles.length">
+                                <div v-for="(battle, idx) in battles" :key="idx" style='margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;'>
+                                    <strong>#{{ idx + 1 }}</strong> {{ battle.modeDesc }} · {{ battle.mapDesc }} · 排名 {{ battle.teamRank }}
+                                    <div>开局：{{ battle.playTime }}，存活：{{ battle.survivalTime }}</div>
+                                    <div>
+                                        <a v-if="battle.reviewJump && battle.reviewJump.uri" :href="battle.reviewJump.uri" target="_blank">录像</a>
+                                        <span v-else>无复盘链接</span>
+                                    </div>
+                                </div>
+                            </template>
+                            <em v-else>{{ loading ? '加载中...' : '暂无数据' }}</em>
+                        </div>
+                    </div>
+                </main>
+            `,
+            data() { return { battles:[], loading:false }; },
+            mounted() { this.fetchBattles(); },
+            methods: {
+                async fetchBattles() {
+                    this.loading = true;
+                    try {
+                        const resp = await fetch('/api/battles');
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || '获取战绩失败');
+                        this.battles = data.battles || [];
+                    } catch (err) {
+                        this.battles = [];
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+            },
+        };
+
+        const ClipsView = {
+            template: `
+                <main>
+                    <div class='card'>
+                        <div style='display:flex;justify-content:space-between;align-items:center;'>
+                            <h2>本地录像</h2>
+                            <button @click="fetchClips">刷新列表</button>
+                        </div>
+                        <div class='clips-layout'>
+                            <video ref='player' controls></video>
+                            <div class='clips-sidebar'>
+                                <div class='folder-tabs'>
+                                    <button
+                                        v-for="group in groups"
+                                        :key="group.folder"
+                                        :class="{active: group.folder === activeFolder}"
+                                        @click="setFolder(group.folder)"
+                                    >
+                                        {{ group.folder }}
+                                    </button>
+                                </div>
+                                <div class='folder-list'>
+                                    <template v-if="currentItems.length">
+                                        <div
+                                            v-for="clip in currentItems"
+                                            :key="clip.relative_path"
+                                            class='clip-item'
+                                            :class="{active: clip.flatIndex === currentIndex}"
+                                            @click="playByIndex(clip.flatIndex)"
+                                        >
+                                            <strong>{{ clip.name }}</strong>
+                                            <div>更新：{{ formatTimestamp(clip.mtime) }}</div>
+                                        </div>
+                                    </template>
+                                    <em v-else>{{ loading ? '加载中...' : '此文件夹暂无剪辑' }}</em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            `,
+            data() {
+                return { groups:[], flatClips:[], activeFolder:'', currentIndex:-1, loading:false };
+            },
+            computed: {
+                currentItems() {
+                    const group = this.groups.find(g => g.folder === this.activeFolder);
+                    return group ? group.items : [];
+                },
+            },
+            mounted() {
+                this.fetchClips();
+                this.$refs.player.addEventListener('ended', () => {
+                    if (this.currentIndex + 1 < this.flatClips.length) {
+                        this.playByIndex(this.currentIndex + 1);
+                    }
+                });
+            },
+            methods: {
+                async fetchClips() {
+                    this.loading = true;
+                    try {
+                        const resp = await fetch('/api/clips');
+                        const data = await resp.json();
+                        const clips = data.clips || [];
+                        const flat = [];
+                        const groupsMap = new Map();
+                        for (const clip of clips) {
+                            const parts = clip.relative_path.split(/[\\/]/);
+                            const folder = parts[0] || '根目录';
+                            const entry = { ...clip, flatIndex: flat.length };
+                            flat.push(entry);
+                            if (!groupsMap.has(folder)) groupsMap.set(folder, []);
+                            groupsMap.get(folder).push(entry);
+                        }
+                        this.flatClips = flat;
+                        this.groups = Array.from(groupsMap, ([folder, items]) => ({ folder, items }));
+                        this.activeFolder = this.groups.length ? this.groups[0].folder : '';
+                        if (flat.length && this.currentIndex === -1) {
+                            this.playByIndex(0);
+                        } else {
+                            this.updateHighlight();
+                        }
+                    } catch (err) {
+                        this.groups = [];
+                        this.flatClips = [];
+                        this.activeFolder = '';
+                        this.currentIndex = -1;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                setFolder(folder) {
+                    if (folder === this.activeFolder) return;
+                    this.activeFolder = folder;
+                    this.currentIndex = -1;
+                    const items = this.currentItems;
+                    if (items.length) this.playByIndex(items[0].flatIndex);
+                },
+                playByIndex(index) {
+                    if (!this.flatClips[index]) return;
+                    const relative = this.flatClips[index].relative_path;
+                    const url = '/clip-files/' + relative.split(/[\\/]/).map(encodeURIComponent).join('/');
+                    this.currentIndex = index;
+                    this.$refs.player.src = url;
+                    this.$refs.player.play().catch(() => {});
+                    this.updateHighlight();
+                },
+                updateHighlight() {
+                    this.groups = this.groups.map(group => ({
+                        folder: group.folder,
+                        items: group.items.slice(),
+                    }));
+                },
+                formatTimestamp(ts) { return ts ? new Date(ts * 1000).toLocaleString() : '未知'; },
+            },
+        };
+
+        const routes = [
+            { path: '/', component: ExportView },
+            { path: '/battles', component: BattlesView },
+            { path: '/clips', component: ClipsView },
+        ];
+
+        const router = VueRouter.createRouter({
+            history: VueRouter.createWebHashHistory(),
+            routes,
+        });
+
+        const AppLayout = {
+            template: `
+                <div>
+                    <header>
+                        <h1>和平精英精彩录像工具</h1>
+                        <p>浏览直播录像、查看战绩并管理本地剪辑。</p>
+                    </header>
+                    <nav>
+                        <router-link to="/">导出 & B 站录像</router-link>
+                        <router-link to="/battles">战绩查看</router-link>
+                        <router-link to="/clips">本地录像</router-link>
+                    </nav>
+                    <router-view />
+                </div>
+            `,
+        };
+
+        const app = Vue.createApp(AppLayout);
+        app.use(router);
+        app.mount('#app');
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
