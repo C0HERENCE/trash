@@ -122,7 +122,7 @@ def run_highlight_pipeline(show_progress: bool = True, selected_live_keys=None) 
 
         start_time = m3u8["start_time"]
         end_time = m3u8["end_time"]
-        merged_clips = preprocess_wonderful(wonderful_times, start_time, end_time, pad_before=15, pad_after=6)
+        merged_clips = preprocess_wonderful(wonderful_times, start_time, end_time, pad_before=12, pad_after=3)
         if not merged_clips:
             raise HighlightPipelineError("近 24 小时内未检测到精彩时刻，或录像尚未生成。")
 
@@ -195,7 +195,7 @@ async def run_pipeline_api(request: Request):
         if isinstance(raw_keys, list):
             selected_keys = [str(k) for k in raw_keys if k]
     try:
-        result = await run_in_threadpool(run_highlight_pipeline, False, selected_keys)
+        result = await run_in_threadpool(run_highlight_pipeline, True, selected_keys)
     except HighlightPipelineError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

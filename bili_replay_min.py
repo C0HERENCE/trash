@@ -10,9 +10,13 @@ HEADERS = {
 }
 FFMPEG = "./bin/ffmpeg"
 
-def init(cookie_str, headers=None, ffmpeg_path=None):
+def init(cookie_str : str, headers=None, ffmpeg_path=None):
     global COOKIES, HEADERS, FFMPEG
-    COOKIES = dict(item.strip().split("=", 1) for item in cookie_str.split(";"))
+    COOKIES = dict(
+        item.split("=", 1)
+        for item in (p.strip() for p in cookie_str.replace("\n", " ").split(";"))
+        if item and "=" in item
+    )
     if headers:
         HEADERS.update(headers)
     if ffmpeg_path:
