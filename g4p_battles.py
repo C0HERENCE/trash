@@ -84,7 +84,7 @@ def wait_for_open_id(client, uuid, timeout=120):
     raise RuntimeError("qr scan timed out")
 
 
-def login_flow(client, account):
+def login_flow(client:GpRequestClient, account):
     print("requesting wx sdk ticket...")
     ticket = client.request_wx_sdk_ticket()
     print("requesting qr code...")
@@ -119,3 +119,7 @@ def is_g4p_logged_in(account_path=None) -> bool:
     return bool(account.is_valid_login())
 
 
+
+if __name__ == "__main__":
+    g4p_login()
+    print(" logged in")
